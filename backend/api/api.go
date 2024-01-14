@@ -10,13 +10,18 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/oapi-codegen/echo-middleware"
+
+	"github.com/astromechza/todo-app/backend/model"
 )
 
 //go:generate go run github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen --config=oapi-codegen.cfg.yaml ../api.yaml
 
 type Server struct {
+	Database model.Modelling
 }
 
 func (s *Server) GetHealthZ(ctx context.Context, request GetHealthZRequestObject) (GetHealthZResponseObject, error) {
@@ -27,6 +32,32 @@ func DefaultErrorHandler(err error, c echo.Context) {
 	requestId := uuid.NewString()
 	problemUri := "request-id:" + requestId
 	logger := slog.With("request-id", requestId, "method", c.Request().Method, "url", c.Request().URL.String())
+
+	if e := model.ErrBadRequest(""); errors.As(err, &e) {
+		if err = c.JSON(http.StatusBadRequest, StandardProblemResponse{
+			Type:     "about:blank",
+			Instance: &problemUri,
+			Status:   http.StatusBadRequest,
+			Title:    "Bad request",
+			Detail:   e.Error(),
+		}); err != nil {
+			logger.Warn("failed to write default error response", "err", err)
+		}
+		return
+	}
+
+	if e := model.ErrNotFound(""); errors.As(err, &e) {
+		if err = c.JSON(http.StatusNotFound, StandardProblemResponse{
+			Type:     "about:blank",
+			Instance: &problemUri,
+			Status:   http.StatusNotFound,
+			Title:    "Not found",
+			Detail:   e.Error(),
+		}); err != nil {
+			logger.Warn("failed to write default error response", "err", err)
+		}
+		return
+	}
 
 	if errors.Is(err, echo.ErrNotFound) {
 		if err = c.JSON(http.StatusNotFound, StandardProblemResponse{
@@ -107,4 +138,23 @@ func (d *DefaultJsonSerializer) Deserialize(c echo.Context, i interface{}) error
 		return NewErrCouldNotParseRequest("json parsing failed", err)
 	}
 	return nil
+}
+
+func BuildOpenApiValidator(raw []byte) (echo.MiddlewareFunc, error) {
+	data, err := openapi3.NewLoader().LoadFromData(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load open api schema: %w", err)
+	}
+	validator := echomiddleware.OapiRequestValidatorWithOptions(data, &echomiddleware.Options{
+		ErrorHandler: func(c echo.Context, err *echo.HTTPError) error {
+			switch err.Code {
+			case http.StatusBadRequest:
+				if stringMessage, ok := err.Message.(string); ok {
+					return model.ErrBadRequest(stringMessage)
+				}
+			}
+			return fmt.Errorf("unexpected error from openapi validator: %w", err)
+		},
+	})
+	return validator, nil
 }

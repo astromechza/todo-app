@@ -15,10 +15,19 @@ import (
 	strictecho "github.com/oapi-codegen/runtime/strictmiddleware/echo"
 )
 
+// Defines values for ListTodosParamsSortUpdatedAt.
+const (
+	Asc  ListTodosParamsSortUpdatedAt = "asc"
+	Desc ListTodosParamsSortUpdatedAt = "desc"
+)
+
 // CreateTodo defines model for CreateTodo.
 type CreateTodo struct {
 	// Details The longer rich text content of the TODO item.
 	Details *string `json:"details,omitempty"`
+
+	// GroupId The workspace this TODO should be created in
+	GroupId *string `json:"group_id,omitempty"`
 
 	// Title The title of the TODO item.
 	Title string `json:"title"`
@@ -47,28 +56,52 @@ type Problem struct {
 
 // Todo defines model for Todo.
 type Todo struct {
-	// CreatedAt The time that the TODO item was first created.
-	CreatedAt time.Time `json:"created_at"`
-
-	// CurrentStatus The current status of the TODO item.
-	CurrentStatus string `json:"current_status"`
-
 	// Details The longer rich text content of the TODO item.
-	Details string `json:"details"`
+	Details  *string      `json:"details,omitempty"`
+	Metadata TodoMetadata `json:"metadata"`
 
-	// Id A unique identifier for this TODO item.
-	Id *string `json:"id,omitempty"`
-
-	// Revision A monotonic revision number associated with this TODO item.
-	Revision int `json:"revision"`
+	// Status The current status of the TODO item.
+	Status string `json:"status"`
 
 	// Title The title of the TODO item.
 	Title string `json:"title"`
 }
 
+// TodoMetadata defines model for TodoMetadata.
+type TodoMetadata struct {
+	// CreatedAt The time that the TODO item was first created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Epoch A unique epoch for this TODO item.
+	Epoch int `json:"epoch"`
+
+	// GroupEpoch The epoch of the workspace this TODO item is tied to.
+	GroupEpoch int `json:"group_epoch"`
+
+	// GroupId The workspace this TODO item exists in
+	GroupId string `json:"group_id"`
+
+	// Id A unique identifier for this TODO item.
+	Id string `json:"id"`
+
+	// Revision A monotonic revision number associated with this TODO item.
+	Revision int `json:"revision"`
+
+	// UpdatedAt The time that the TODO item was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// WorkspaceEpoch The epoch of the workspace this TODO item is tied to.
+	WorkspaceEpoch int `json:"workspace_epoch"`
+
+	// WorkspaceId The workspace this TODO item exists in
+	WorkspaceId string `json:"workspace_id"`
+}
+
 // TodoPage defines model for TodoPage.
 type TodoPage struct {
-	Items *[]Todo `json:"items,omitempty"`
+	Items          []Todo  `json:"items"`
+	NextPageToken  *string `json:"next_page_token,omitempty"`
+	RemainingItems int     `json:"remaining_items"`
 }
 
 // StandardBadRequestProblem An https://datatracker.ietf.org/doc/html/rfc9457 Problem response.
@@ -80,6 +113,24 @@ type StandardNotFoundProblem = Problem
 // StandardProblemResponse An https://datatracker.ietf.org/doc/html/rfc9457 Problem response.
 type StandardProblemResponse = Problem
 
+// ListTodosParams defines parameters for ListTodos.
+type ListTodosParams struct {
+	// Page The page token to request.
+	Page *string `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize The page size to limit the response to.
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// Status Filter by a status.
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+
+	// SortUpdatedAt Sort by updated at
+	SortUpdatedAt *ListTodosParamsSortUpdatedAt `form:"sort_updated_at,omitempty" json:"sort_updated_at,omitempty"`
+}
+
+// ListTodosParamsSortUpdatedAt defines parameters for ListTodos.
+type ListTodosParamsSortUpdatedAt string
+
 // CreateTodoJSONRequestBody defines body for CreateTodo for application/json ContentType.
 type CreateTodoJSONRequestBody = CreateTodo
 
@@ -90,10 +141,13 @@ type ServerInterface interface {
 	GetHealthZ(ctx echo.Context) error
 	// List TODOs in the current workspace.
 	// (GET /workspace/{workspaceId}/todos)
-	ListTodos(ctx echo.Context, workspaceId string) error
+	ListTodos(ctx echo.Context, workspaceId string, params ListTodosParams) error
 	// Create a new TODO in the workspace.
 	// (POST /workspace/{workspaceId}/todos)
 	CreateTodo(ctx echo.Context, workspaceId string) error
+	// Get a TODO item by id.
+	// (GET /workspace/{workspaceId}/todos/{todoId})
+	GetTodo(ctx echo.Context, workspaceId string, todoId string) error
 }
 
 // ServerInterfaceWrapper converts echo contexts to parameters.
@@ -121,8 +175,38 @@ func (w *ServerInterfaceWrapper) ListTodos(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter workspaceId: %s", err))
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTodosParams
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page", ctx.QueryParams(), &params.Page)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter page: %s", err))
+	}
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page_size", ctx.QueryParams(), &params.PageSize)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter page_size: %s", err))
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "status", ctx.QueryParams(), &params.Status)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter status: %s", err))
+	}
+
+	// ------------- Optional query parameter "sort_updated_at" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "sort_updated_at", ctx.QueryParams(), &params.SortUpdatedAt)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter sort_updated_at: %s", err))
+	}
+
 	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.ListTodos(ctx, workspaceId)
+	err = w.Handler.ListTodos(ctx, workspaceId, params)
 	return err
 }
 
@@ -139,6 +223,30 @@ func (w *ServerInterfaceWrapper) CreateTodo(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.CreateTodo(ctx, workspaceId)
+	return err
+}
+
+// GetTodo converts echo context to params.
+func (w *ServerInterfaceWrapper) GetTodo(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "workspaceId", runtime.ParamLocationPath, ctx.Param("workspaceId"), &workspaceId)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter workspaceId: %s", err))
+	}
+
+	// ------------- Path parameter "todoId" -------------
+	var todoId string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "todoId", runtime.ParamLocationPath, ctx.Param("todoId"), &todoId)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter todoId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetTodo(ctx, workspaceId, todoId)
 	return err
 }
 
@@ -173,6 +281,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.GET(baseURL+"/healthz", wrapper.GetHealthZ)
 	router.GET(baseURL+"/workspace/:workspaceId/todos", wrapper.ListTodos)
 	router.POST(baseURL+"/workspace/:workspaceId/todos", wrapper.CreateTodo)
+	router.GET(baseURL+"/workspace/:workspaceId/todos/:todoId", wrapper.GetTodo)
 
 }
 
@@ -212,6 +321,7 @@ func (response GetHealthZdefaultJSONResponse) VisitGetHealthZResponse(w http.Res
 
 type ListTodosRequestObject struct {
 	WorkspaceId string `json:"workspaceId"`
+	Params      ListTodosParams
 }
 
 type ListTodosResponseObject interface {
@@ -313,6 +423,58 @@ func (response CreateTododefaultJSONResponse) VisitCreateTodoResponse(w http.Res
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type GetTodoRequestObject struct {
+	WorkspaceId string `json:"workspaceId"`
+	TodoId      string `json:"todoId"`
+}
+
+type GetTodoResponseObject interface {
+	VisitGetTodoResponse(w http.ResponseWriter) error
+}
+
+type GetTodo200JSONResponse Todo
+
+func (response GetTodo200JSONResponse) VisitGetTodoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetTodo400JSONResponse struct {
+	StandardBadRequestProblemJSONResponse
+}
+
+func (response GetTodo400JSONResponse) VisitGetTodoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetTodo404JSONResponse struct {
+	StandardNotFoundProblemJSONResponse
+}
+
+func (response GetTodo404JSONResponse) VisitGetTodoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetTododefaultJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetTododefaultJSONResponse) VisitGetTodoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// Get the health status of the TODOs application
@@ -324,6 +486,9 @@ type StrictServerInterface interface {
 	// Create a new TODO in the workspace.
 	// (POST /workspace/{workspaceId}/todos)
 	CreateTodo(ctx context.Context, request CreateTodoRequestObject) (CreateTodoResponseObject, error)
+	// Get a TODO item by id.
+	// (GET /workspace/{workspaceId}/todos/{todoId})
+	GetTodo(ctx context.Context, request GetTodoRequestObject) (GetTodoResponseObject, error)
 }
 
 type StrictHandlerFunc = strictecho.StrictEchoHandlerFunc
@@ -362,10 +527,11 @@ func (sh *strictHandler) GetHealthZ(ctx echo.Context) error {
 }
 
 // ListTodos operation middleware
-func (sh *strictHandler) ListTodos(ctx echo.Context, workspaceId string) error {
+func (sh *strictHandler) ListTodos(ctx echo.Context, workspaceId string, params ListTodosParams) error {
 	var request ListTodosRequestObject
 
 	request.WorkspaceId = workspaceId
+	request.Params = params
 
 	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
 		return sh.ssi.ListTodos(ctx.Request().Context(), request.(ListTodosRequestObject))
@@ -411,6 +577,32 @@ func (sh *strictHandler) CreateTodo(ctx echo.Context, workspaceId string) error 
 		return err
 	} else if validResponse, ok := response.(CreateTodoResponseObject); ok {
 		return validResponse.VisitCreateTodoResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetTodo operation middleware
+func (sh *strictHandler) GetTodo(ctx echo.Context, workspaceId string, todoId string) error {
+	var request GetTodoRequestObject
+
+	request.WorkspaceId = workspaceId
+	request.TodoId = todoId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTodo(ctx.Request().Context(), request.(GetTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTodo")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetTodoResponseObject); ok {
+		return validResponse.VisitGetTodoResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

@@ -29,6 +29,35 @@ paths:
           schema:
             type: string
             pattern: ^public|(?:[A-Za-z0-9]{6,26})$
+        - name: page
+          in: query
+          description: The page token to request.
+          required: false
+          schema:
+            type: string
+        - name: page_size
+          in: query
+          description: The page size to limit the response to.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: status
+          in: query
+          description: Filter by a status.
+          required: false
+          schema:
+            type: string
+        - name: sort_updated_at
+          in: query
+          description: Sort by updated at
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
       responses:
         "200":
           description: Successful list response.
@@ -62,6 +91,39 @@ paths:
       responses:
         "201":
           description: Successful create response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Todo"
+        "400":
+          $ref: "#/components/responses/StandardBadRequestProblem"
+        "404":
+          $ref: "#/components/responses/StandardNotFoundProblem"
+        default:
+          $ref: "#/components/responses/StandardProblemResponse"
+
+  /workspace/{workspaceId}/todos/{todoId}:
+    get:
+      summary: Get a TODO item by id.
+      operationId: getTodo
+      parameters:
+        - name: workspaceId
+          in: path
+          description: The workspace id or 'public' to use the Public workspace.
+          required: true
+          schema:
+            type: string
+            pattern: ^public|(?:[A-Za-z0-9]{6,26})$
+        - name: todoId
+          in: path
+          description: The todo id.
+          required: true
+          schema:
+            type: string
+            pattern: ^public|(?:[A-Za-z0-9]{6,26})$
+      responses:
+        "200":
+          description: Successful get response.
           content:
             application/json:
               schema:
@@ -133,6 +195,12 @@ components:
       type: object
       additionalProperties: false
       properties:
+        group_id:
+          description: The workspace this TODO should be created in
+          type: string
+          example: "TODO"
+          default: "TODO"
+          pattern: ^[A-Z][A-Z0-9]+$
         title:
           description: The title of the TODO item.
           type: string
@@ -143,7 +211,6 @@ components:
           description: The longer rich text content of the TODO item.
           type: string
           example: Details about how to do the thing.
-          default: ""
           maxLength: 5000
       required:
         - title
@@ -151,10 +218,8 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id:
-          description: A unique identifier for this TODO item.
-          type: string
-          example: "00001"
+        metadata:
+          $ref: "#/components/schemas/TodoMetadata"
         title:
           description: The title of the TODO item.
           type: string
@@ -163,12 +228,48 @@ components:
           description: The longer rich text content of the TODO item.
           type: string
           example: Details about how to do the thing.
-        current_status:
+        status:
           description: The current status of the TODO item.
           type: string
           example: open
+      required:
+        - metadata
+        - title
+        - status
+    TodoMetadata:
+      type: object
+      properties:
+        id:
+          description: A unique identifier for this TODO item.
+          type: string
+          example: "00001"
+        epoch:
+          description: A unique epoch for this TODO item.
+          type: integer
+          example: 1
+        workspace_id:
+          description: The workspace this TODO item exists in
+          type: string
+          example: "my-workspace"
+        workspace_epoch:
+          description: The epoch of the workspace this TODO item is tied to.
+          type: integer
+          example: 1
+        group_id:
+          description: The workspace this TODO item exists in
+          type: string
+          example: "TODO"
+        group_epoch:
+          description: The epoch of the workspace this TODO item is tied to.
+          type: integer
+          example: 1
         created_at:
           description: The time that the TODO item was first created.
+          type: string
+          format: date-time
+          example: "2024-12-31T23:59:59.999Z"
+        updated_at:
+          description: The time that the TODO item was last updated.
           type: string
           format: date-time
           example: "2024-12-31T23:59:59.999Z"
@@ -177,11 +278,15 @@ components:
           type: integer
           example: 1
       required:
-        - title
-        - details
-        - current_status
+        - id
+        - epoch
         - created_at
         - revision
+        - updated_at
+        - workspace_id
+        - workspace_epoch
+        - group_id
+        - group_epoch
     TodoPage:
       type: object
       additionalProperties: false
@@ -190,3 +295,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Todo"
+        next_page_token:
+          type: string
+        remaining_items:
+          type: integer
+      required:
+        - items
+        - remaining_items

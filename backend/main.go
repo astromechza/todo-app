@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/astromechza/todo-app/backend/api"
+	"github.com/astromechza/todo-app/backend/model/sqlmodel"
 )
 
 func main() {
@@ -23,13 +25,33 @@ func main() {
 	}
 }
 
+//go:embed api.yaml
+var ApiSpec []byte
+
 func mainInner() error {
+
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer connectCancel()
+
+	db, err := sqlmodel.NewSqlModel(connectCtx, os.Getenv("DB_STRING"))
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close(connectCtx)
+
+	apiServer := &api.Server{Database: db}
+
 	echoServer := echo.New()
 	echoServer.HidePort = true
 	echoServer.HideBanner = true
 	echoServer.HTTPErrorHandler = api.DefaultErrorHandler
 	echoServer.JSONSerializer = new(api.DefaultJsonSerializer)
-	api.RegisterHandlers(echoServer, api.NewStrictHandler(new(api.Server), []api.StrictMiddlewareFunc{}))
+	if middleware, err := api.BuildOpenApiValidator(ApiSpec); err != nil {
+		return err
+	} else {
+		echoServer.Use(middleware)
+	}
+	api.RegisterHandlers(echoServer, api.NewStrictHandler(apiServer, []api.StrictMiddlewareFunc{}))
 
 	defer func() {
 		if err := echoServer.Close(); err != nil {
