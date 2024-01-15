@@ -24,7 +24,10 @@ type Server struct {
 	Database model.Modelling
 }
 
-func (s *Server) GetHealthZ(ctx context.Context, request GetHealthZRequestObject) (GetHealthZResponseObject, error) {
+func (s *Server) GetHealthZ(ctx context.Context, _ GetHealthZRequestObject) (GetHealthZResponseObject, error) {
+	if err := s.Database.HealthZ(ctx); err != nil {
+		return nil, err
+	}
 	return GetHealthZ200JSONResponse{}, nil
 }
 

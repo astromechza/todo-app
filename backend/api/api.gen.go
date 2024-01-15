@@ -145,6 +145,9 @@ type ServerInterface interface {
 	// Create a new TODO in the workspace.
 	// (POST /workspace/{workspaceId}/todos)
 	CreateTodo(ctx echo.Context, workspaceId string) error
+	// Delete a TODO item by id.
+	// (DELETE /workspace/{workspaceId}/todos/{todoId})
+	DeleteTodo(ctx echo.Context, workspaceId string, todoId string) error
 	// Get a TODO item by id.
 	// (GET /workspace/{workspaceId}/todos/{todoId})
 	GetTodo(ctx echo.Context, workspaceId string, todoId string) error
@@ -226,6 +229,30 @@ func (w *ServerInterfaceWrapper) CreateTodo(ctx echo.Context) error {
 	return err
 }
 
+// DeleteTodo converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteTodo(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "workspaceId", runtime.ParamLocationPath, ctx.Param("workspaceId"), &workspaceId)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter workspaceId: %s", err))
+	}
+
+	// ------------- Path parameter "todoId" -------------
+	var todoId string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "todoId", runtime.ParamLocationPath, ctx.Param("todoId"), &todoId)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter todoId: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeleteTodo(ctx, workspaceId, todoId)
+	return err
+}
+
 // GetTodo converts echo context to params.
 func (w *ServerInterfaceWrapper) GetTodo(ctx echo.Context) error {
 	var err error
@@ -281,6 +308,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.GET(baseURL+"/healthz", wrapper.GetHealthZ)
 	router.GET(baseURL+"/workspace/:workspaceId/todos", wrapper.ListTodos)
 	router.POST(baseURL+"/workspace/:workspaceId/todos", wrapper.CreateTodo)
+	router.DELETE(baseURL+"/workspace/:workspaceId/todos/:todoId", wrapper.DeleteTodo)
 	router.GET(baseURL+"/workspace/:workspaceId/todos/:todoId", wrapper.GetTodo)
 
 }
@@ -423,6 +451,57 @@ func (response CreateTododefaultJSONResponse) VisitCreateTodoResponse(w http.Res
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type DeleteTodoRequestObject struct {
+	WorkspaceId string `json:"workspaceId"`
+	TodoId      string `json:"todoId"`
+}
+
+type DeleteTodoResponseObject interface {
+	VisitDeleteTodoResponse(w http.ResponseWriter) error
+}
+
+type DeleteTodo204Response struct {
+}
+
+func (response DeleteTodo204Response) VisitDeleteTodoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTodo400JSONResponse struct {
+	StandardBadRequestProblemJSONResponse
+}
+
+func (response DeleteTodo400JSONResponse) VisitDeleteTodoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteTodo404JSONResponse struct {
+	StandardNotFoundProblemJSONResponse
+}
+
+func (response DeleteTodo404JSONResponse) VisitDeleteTodoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteTododefaultJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteTododefaultJSONResponse) VisitDeleteTodoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type GetTodoRequestObject struct {
 	WorkspaceId string `json:"workspaceId"`
 	TodoId      string `json:"todoId"`
@@ -486,6 +565,9 @@ type StrictServerInterface interface {
 	// Create a new TODO in the workspace.
 	// (POST /workspace/{workspaceId}/todos)
 	CreateTodo(ctx context.Context, request CreateTodoRequestObject) (CreateTodoResponseObject, error)
+	// Delete a TODO item by id.
+	// (DELETE /workspace/{workspaceId}/todos/{todoId})
+	DeleteTodo(ctx context.Context, request DeleteTodoRequestObject) (DeleteTodoResponseObject, error)
 	// Get a TODO item by id.
 	// (GET /workspace/{workspaceId}/todos/{todoId})
 	GetTodo(ctx context.Context, request GetTodoRequestObject) (GetTodoResponseObject, error)
@@ -577,6 +659,32 @@ func (sh *strictHandler) CreateTodo(ctx echo.Context, workspaceId string) error 
 		return err
 	} else if validResponse, ok := response.(CreateTodoResponseObject); ok {
 		return validResponse.VisitCreateTodoResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteTodo operation middleware
+func (sh *strictHandler) DeleteTodo(ctx echo.Context, workspaceId string, todoId string) error {
+	var request DeleteTodoRequestObject
+
+	request.WorkspaceId = workspaceId
+	request.TodoId = todoId
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTodo(ctx.Request().Context(), request.(DeleteTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTodo")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteTodoResponseObject); ok {
+		return validResponse.VisitDeleteTodoResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

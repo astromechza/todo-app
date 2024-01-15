@@ -57,10 +57,17 @@ type CreateTodosParams struct {
 	Details *string
 }
 
+type DeleteTodosParams struct {
+	Epoch    *int
+	Revision *int
+}
+
 type Modelling interface {
+	HealthZ(ctx context.Context) error
+
 	GetTodo(ctx context.Context, workspaceId string, id string) (*Todo, error)
 	ListTodos(ctx context.Context, workspaceId string, params ListTodosParams) (*ListTodosPage, error)
 	CreateTodo(ctx context.Context, workspaceId string, params CreateTodosParams) (*Todo, error)
-	DeleteTodo(ctx context.Context, workspaceId, id, epoch string, revision int64) error
+	DeleteTodo(ctx context.Context, workspaceId string, id string, params DeleteTodosParams) error
 	Close(ctx context.Context) error
 }

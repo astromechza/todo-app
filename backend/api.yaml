@@ -120,7 +120,7 @@ paths:
           required: true
           schema:
             type: string
-            pattern: ^public|(?:[A-Za-z0-9]{6,26})$
+            pattern: ^[A-Z][A-Z0-9]+-[0-9]+$
       responses:
         "200":
           description: Successful get response.
@@ -128,6 +128,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Todo"
+        "400":
+          $ref: "#/components/responses/StandardBadRequestProblem"
+        "404":
+          $ref: "#/components/responses/StandardNotFoundProblem"
+        default:
+          $ref: "#/components/responses/StandardProblemResponse"
+    delete:
+      summary: Delete a TODO item by id.
+      operationId: deleteTodo
+      parameters:
+        - name: workspaceId
+          in: path
+          description: The workspace id or 'public' to use the Public workspace.
+          required: true
+          schema:
+            type: string
+            pattern: ^public|(?:[A-Za-z0-9]{6,26})$
+        - name: todoId
+          in: path
+          description: The todo id.
+          required: true
+          schema:
+            type: string
+            pattern: ^[A-Z][A-Z0-9]+-[0-9]+$
+      responses:
+        "204":
+          description: Successful delete response.
         "400":
           $ref: "#/components/responses/StandardBadRequestProblem"
         "404":

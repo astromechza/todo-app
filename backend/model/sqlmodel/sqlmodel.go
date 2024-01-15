@@ -286,7 +286,27 @@ func (s *sqlModel) CreateTodo(ctx context.Context, workspaceId string, params mo
 	return &out, nil
 }
 
-func (s *sqlModel) DeleteTodo(ctx context.Context, workspaceId, id, epoch string, revision int64) error {
-	//TODO implement me
-	panic("implement me")
+func (s *sqlModel) DeleteTodo(ctx context.Context, workspaceId string, id string, params model.DeleteTodosParams) error {
+	groupId, todoId := model.SplitGroupId(id)
+	var deleted bool
+	var returnedRevision int64
+	if err := s.db.QueryRowContext(
+		ctx,
+		`WITH deleted_revisions AS (
+    		DELETE FROM todos WHERE workspace_id = $1 AND group_id = $2 AND id = $3 AND ($4 = 0 OR epoch = $4) AND ($5 = 0 OR revision = $5) RETURNING true, revision
+		), remaining_revisions AS (
+			SELECT false, revision FROM todos WHERE workspace_id = $1 AND group_id = $2 AND id = $3 AND ($4 = 0 OR epoch = $4) AND ($5 != 0 AND revision != $5)
+		)
+		SELECT * FROM deleted_revisions UNION ALL SELECT * FROM remaining_revisions`,
+		workspaceId, groupId, todoId, ref.DeRefOr(params.Epoch, 0), ref.DeRefOr(params.Revision, 0),
+	).Scan(&deleted, &returnedRevision); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.ErrNotFound("todo not found")
+		}
+		return fmt.Errorf("failed to exec delete: %w", err)
+	}
+	if deleted {
+		return nil
+	}
+	return model.ErrBadRequest("incorrect revision number")
 }

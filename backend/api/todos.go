@@ -71,3 +71,10 @@ func (s *Server) CreateTodo(ctx context.Context, request CreateTodoRequestObject
 		return CreateTodo201JSONResponse(toApiTodo(res)), nil
 	}
 }
+
+func (s *Server) DeleteTodo(ctx context.Context, request DeleteTodoRequestObject) (DeleteTodoResponseObject, error) {
+	if err := s.Database.DeleteTodo(ctx, request.WorkspaceId, request.TodoId, model.DeleteTodosParams{}); err != nil {
+		return nil, err
+	}
+	return DeleteTodo204Response{}, nil
+}
